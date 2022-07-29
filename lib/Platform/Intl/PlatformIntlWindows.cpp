@@ -36,16 +36,16 @@ namespace hermes {
 namespace platform_intl {
 
 // Helper Functions - should move to another file
-std::u16string NormalizeLangugeTag(const std::u16string locale) {
-    if (locale.empty()) {
-        //std::cout << "invalid language tag";
+vm::CallResult<std::u16string> NormalizeLangugeTag(vm::Runtime *runtime, const std::u16string locale) {
+    if (locale.length() == 0) {
+       return runtime->raiseRangeError("RangeError: Invalid language tag");
     }
    
     // conversion helper: UTF-8 to/from UTF-16
     std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> conversion;
     std::string locale8 = conversion.to_bytes(locale);
 
-    // ICU doesn't have a full-fledged canonicalization implementation that correctly replaces all preferred values
+    // [Comment from ChakreCore] ICU doesn't have a full-fledged canonicalization implementation that correctly replaces all preferred values
     // and grandfathered tags, as required by #sec-canonicalizelanguagetag.
     // However, passing the locale through uloc_forLanguageTag -> uloc_toLanguageTag gets us most of the way there
     // by replacing some(?) values, correctly capitalizing the tag, and re-ordering extensions 
@@ -55,12 +55,21 @@ std::u16string NormalizeLangugeTag(const std::u16string locale) {
     char canonicalized[ULOC_FULLNAME_CAPACITY] = { 0 };
     int forLangTagResultLength = uloc_forLanguageTag(locale8.c_str(), localeID, ULOC_FULLNAME_CAPACITY, &parsedLength, &status);
 
+    if(forLangTagResultLength < 0 || parsedLength < locale.length() || status == U_ILLEGAL_ARGUMENT_ERROR){
+        return runtime->raiseRangeError(vm::TwineChar16("Invalid language tag: ") + vm::TwineChar16(locale8.c_str()));
+    }
+
     int toLangTagResultLength = uloc_toLanguageTag(localeID, canonicalized, ULOC_FULLNAME_CAPACITY, true, &status);
+
+    if(forLangTagResultLength <= 0){
+        return runtime->raiseRangeError(vm::TwineChar16("Invalid language tag: ") + vm::TwineChar16(locale8.c_str()));
+    }
 
     return conversion.from_bytes(canonicalized);
 }
 
-std::vector<std::u16string> CanonicalizeLocaleList(const std::vector<std::u16string>& locales) {
+//https://tc39.es/ecma402/#sec-canonicalizelocalelist
+vm::CallResult<std::vector<std::u16string>> CanonicalizeLocaleList(vm::Runtime *runtime, const std::vector<std::u16string>& locales) {
 
     // 1. If locales is undefined, then a. Return a new empty list
     if (locales.empty()) {
@@ -73,20 +82,23 @@ std::vector<std::u16string> CanonicalizeLocaleList(const std::vector<std::u16str
     // 3. If Type(locales) is String or Type(locales) is Object and locales has an
     // [[InitializedLocale]] internal slot, then
     // 4. Else
-    //  > TODO: Windows and Apple don't yet support Locale object -
+    //  > TODO: Windows/Apple don't yet support Locale object -
     //  > https://tc39.es/ecma402/#locale-objects As of now, 'locales' can only be a
     //  > string list/array. Validation occurs in NormalizeLangugeTag for windows, so this
     //  > function just takes a vector of strings.
     // 5-7. Let len be ? ToLength(? Get(O, "length")). Let k be 0. Repeat, while k < len
     for (int k = 0; k < locales.size(); k++) {
-        // TODO: tag validation, note that Apples implementation does not do tag validation yet nor does Chakra with ICU
+        // TODO: tag validation, note that Apples implementation does not do tag validation yet nor does ChakraCOre with ICU
         // 7.c.iii.1 Let tag be kValue[[locale]]
         std::u16string tag = locales[k];
         // 7.c.vi Let canonicalizedTag be CanonicalizeUnicodeLocaleID(tag)
-        std::u16string canonicalizedTag = NormalizeLangugeTag(tag);
+        auto canonicalizedTag = NormalizeLangugeTag(runtime, tag);
+        if (LLVM_UNLIKELY(canonicalizedTag == vm::ExecutionStatus::EXCEPTION)) {
+          return vm::ExecutionStatus::EXCEPTION;
+        }
         // 7.c.vii. If canonicalizedTag is not an element of seen, append canonicalizedTag as the last element of seen.
-        if (std::find(seen.begin(), seen.end(), canonicalizedTag) == seen.end()) {
-            seen.push_back(std::move(canonicalizedTag));
+        if (std::find(seen.begin(), seen.end(), canonicalizedTag.getValue()) == seen.end()) {
+            seen.push_back(std::move(canonicalizedTag.getValue()));
         }
     }
     return seen;
@@ -98,7 +110,7 @@ std::vector<std::u16string> CanonicalizeLocaleList(const std::vector<std::u16str
 vm::CallResult<std::vector<std::u16string>> getCanonicalLocales(
     vm::Runtime *runtime,
     const std::vector<std::u16string> &locales) {
-  return CanonicalizeLocaleList(locales);
+  return CanonicalizeLocaleList(runtime ,locales);
 }
 
 
@@ -340,7 +352,7 @@ vm::ExecutionStatus DateTimeFormat::initialize(
     const std::vector<std::u16string> &locales,
     const Options &inputOptions) noexcept {
   
-   auto requestedLocalesRes = CanonicalizeLocaleList(locales);
+   auto requestedLocalesRes = CanonicalizeLocaleList(runtime, locales);
    impl_->locale = locales.front();
    // conversion helper: UTF-8 to/from UTF-16
     std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> conversion;
