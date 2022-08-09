@@ -204,16 +204,31 @@ double Collator::compare(
 
 /// https://402.ecma-international.org/8.0/#sec-getoption
 /// Split into getOptionString and getOptionBool to help readability
-std::u16string getOptionString(
+vm::CallResult<std::u16string> getOptionString(
     vm::Runtime *runtime,
-    const Options& options,
-    const std::u16string& property,
+    const Options &options,
+    const std::u16string &property,
+    std::vector<std::u16string> values,
     std::u16string fallback) {
-    auto valueIt = options.find(property);
-    if (valueIt == options.end())
-        return std::u16string(fallback);
-    std::u16string value = valueIt->second.getString();
-    return value;
+  // 1. Assert type(options) is object
+  // 2. Let value be ? Get(options, property).
+  auto valueIt = options.find(property);
+  // 3. If value is undefined, return fallback.
+  if (valueIt == options.end())
+    return std::u16string(fallback);
+
+  const auto &value = valueIt->second.getString();
+  // 4. Assert: type is "boolean" or "string".
+  // 5. If type is "boolean", then
+  // a. Set value to ! ToBoolean(value).
+  // 6. If type is "string", then
+  // a. Set value to ? ToString(value).
+  // 7. If values is not undefined and values does not contain an element equal
+  // to value, throw a RangeError exception.
+  if (!values.empty() && llvh::find(values, value) == values.end())
+    return runtime->raiseRangeError( vm::TwineChar16(property.c_str()) + vm::TwineChar16(" value is invalid."));
+  // 8. Return value.
+  return std::u16string(value);
 }
 
 bool getOptionBool(
@@ -226,7 +241,7 @@ bool getOptionBool(
     auto value = options.find(property);
     //  3. If value is undefined, return fallback.
     if (value == options.end()) {
-        return fallback;
+      return fallback;
     }
     //  8. Return value.
     return value->second.getBool();
@@ -311,12 +326,29 @@ Options toDateTimeOptions(
     return options;
 }
 
+
+/**Testing
+
+date = new Date(Date.UTC(2020, 0, 2, 3, 45, 00, 30));
+dtf = new Intl.DateTimeFormat('en-GB', { dateStyle: 'short', timeStyle: 'short' })
+dtf.resolvedOptions();
+dtf.format(date)
+
+dtf = new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'full' })
+dtf.resolvedOptions();
+dtf.format(date)
+
+dtf = new Intl.DateTimeFormat('en-US', {year: "2-digit", month: "narrow"});
+dtf.resolvedOptions();
+dtf.format(date)
+**/
+
 // EX: Intl.DateTimeFormat('en-US').format(date) -> "12/20/2020"
-// EX: new Intl.DateTimeFormat(['ban', 'id']).format(date) -> "20/12/2020"
+// EX: new Intl.DateTimeFormat(['2-digit', '2-digit']).format(date) -> "20/12/2020"
 struct DateTimeFormat::Impl {
-  std::u16string locale;
   UDateFormat *dtf;
   UCalendar *calendar;
+  std::u16string locale;
   std::u16string timeZone; 
   std::u16string weekday;
   std::u16string era;
@@ -330,6 +362,8 @@ struct DateTimeFormat::Impl {
   std::u16string timeZoneName;
   std::u16string dateStyle;
   std::u16string timeStyle;
+  std::u16string hourCycle;
+  UDateFormat *getUDateFormatter();
 };
 
 DateTimeFormat::DateTimeFormat() : impl_(std::make_unique<Impl>()) {}
@@ -351,66 +385,96 @@ vm::ExecutionStatus DateTimeFormat::initialize(
     vm::Runtime *runtime,
     const std::vector<std::u16string> &locales,
     const Options &inputOptions) noexcept {
-  
-   auto requestedLocalesRes = CanonicalizeLocaleList(runtime, locales);
-   impl_->locale = locales.front();
+
+    auto requestedLocalesRes = CanonicalizeLocaleList(runtime, locales);
+    impl_->locale = locales.front();
+
    // conversion helper: UTF-8 to/from UTF-16
     std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> conversion;
     std::string locale8 = conversion.to_bytes(impl_->locale);
 
     // 2. Let options be ? ToDateTimeOptions(options, "any", "date").
     Options options = toDateTimeOptions(runtime, inputOptions, u"any", u"date");
+    // 3. Let opt be a new Record.
     std::unordered_map<std::u16string, std::u16string> opt;
-    auto matcherRes = getOptionString(runtime, options,u"localeMatcher",u"best fit");
-    opt.emplace(u"localeMatcher", matcherRes);
-    auto calendarRes = getOptionString(runtime, options, u"calendar", {});
-    opt.emplace(u"ca", calendarRes);
-    opt.emplace(u"nu", u"");
-    auto collationRes = getOptionString(runtime, options, u"collation", {});
-    opt.emplace(u"co", collationRes);
+    // 4. Let matcher be ? GetOption(options, "localeMatcher", "string", «"lookup", "best fit" », "best fit").
+    auto matcher = getOptionString(runtime, options, u"localeMatcher", {u"lookup", u"best fit"}, u"best fit");
+    // 5. Set opt.[[localeMatcher]] to matcher.
+    opt.emplace(u"localeMatcher", matcher.getValue());
+    // 6. Let calendar be ? GetOption(options, "calendar", "string", undefined, undefined).
+    auto calendar = getOptionString(runtime, options, u"calendar", {}, {});
+    opt.emplace(u"ca", calendar.getValue());
+    // 9. Let numberingSystem be ? GetOption(options, "numberingSystem",
+    // "string", undefined, undefined).
+    // 10. If numberingSystem is not undefined, then
+    // a. If numberingSystem does not match the Unicode Locale Identifier
+    // type nonterminal, throw a RangeError exception.
 
+    // 11. Set opt.[[nu]] to numberingSystem.
+    opt.emplace(u"nu", u"");
+
+    // 12. Let hour12 be ? GetOption(options, "hour12", "boolean", undefined, undefined).
+    bool hour12 = getOptionBool(runtime, options, u"hour12", {});
+
+    // 13. Let hourCycle be ? GetOption(options, "hourCycle", "string", «"h11", "h12", "h23", "h24" », undefined).
+    static const std::vector<std::u16string> hourCycles = {u"h11", u"h12", u"h23", u"h24"};
+    auto hourCycle = getOptionString(runtime, options, u"hourCycle", hourCycles, {});
+    auto hourCycleOpt = *hourCycle;
+
+    // 14. If hour12 is not undefined, then a. Set hourCycle to null.
+    // 15. Set opt.[[hc]] to hourCycle.
+
+    auto collationRes = getOptionString(runtime, options, u"collation", {}, {});
+    opt.emplace(u"co", collationRes.getValue());
     static const std::vector<std::u16string> dateStyles = {u"full", u"long", u"medium", u"short" };
-    auto dateStyleRes = getOptionString(runtime, options, u"dateStyle", u"full");
+    auto dateStyleRes = getOptionString(runtime, options, u"dateStyle", dateStyles, {});
     // 33. Set dateTimeFormat.[[DateStyle]] to dateStyle.
-    impl_->dateStyle = dateStyleRes;
+    impl_->dateStyle = dateStyleRes.getValue();
 
     static const std::vector<std::u16string> timeStyles = { u"full", u"long", u"medium", u"short" };
-    auto timeStyleRes = getOptionString(runtime, options, u"timeStyle", u"full");
+    auto timeStyleRes = getOptionString(runtime, options, u"timeStyle", timeStyles, {});
     // 33. Set dateTimeFormat.[[DateStyle]] to dateStyle.
-    impl_->timeStyle = timeStyleRes;
+    impl_->timeStyle = timeStyleRes.getValue();
 
-    UDateFormatStyle dateStyle = UDAT_DEFAULT;
-    UDateFormatStyle timeStyle = UDAT_DEFAULT;
-    if (!impl_->dateStyle.empty()) {
-        if (impl_->dateStyle.compare(u"full") == 0) {
-            dateStyle = UDAT_FULL;
-        }
-        else if (impl_->dateStyle.compare(u"short") == 0) {
-            dateStyle = UDAT_SHORT;
-        }
-        else if (impl_->dateStyle.compare(u"medium") == 0) {
-            dateStyle = UDAT_MEDIUM;
-        }
-        else if (impl_->dateStyle.compare(u"long") == 0) {
-            dateStyle = UDAT_LONG;
-        }
-    }
 
-    if (!impl_->timeStyle.empty()) {
-        if (impl_->timeStyle.compare(u"full") == 0) {
-            timeStyle = UDAT_FULL;
-        }
-        else if (impl_->timeStyle.compare(u"short") == 0) {
-            timeStyle = UDAT_SHORT;
-        }
-        else if (impl_->dateStyle.compare(u"medium") == 0) {
-            timeStyle = UDAT_MEDIUM;
-        }
-        else if (impl_->dateStyle.compare(u"long") == 0) {
-            timeStyle = UDAT_LONG;
-        }
-    }
+    // Initialize properties using values from the options.
+    static const std::vector<std::u16string> weekdayValues = {u"narrow", u"short", u"long" };
+    auto weekdayRes = getOptionString(runtime, options, u"weekday", weekdayValues, {});
+    impl_->weekday = weekdayRes.getValue();
 
+    static const std::vector<std::u16string> eraValues = {u"narrow", u"short", u"long"};
+    auto eraRes = getOptionString(runtime, options, u"era", eraValues, {});
+    impl_->era = *eraRes;
+
+    static const std::vector<std::u16string> yearValues = {u"2-digit", u"numeric"};
+    auto yearRes = getOptionString(runtime, options, u"year", yearValues, {});
+    impl_->year = *yearRes;
+
+    static const std::vector<std::u16string> monthValues = {u"2-digit", u"numeric", u"narrow", u"short", u"long"};
+    auto monthRes = getOptionString(runtime, options, u"month", monthValues, {});
+    impl_->month = *monthRes;
+
+    static const std::vector<std::u16string> dayValues = {u"2-digit", u"numeric"};
+    auto dayRes = getOptionString(runtime, options, u"day", dayValues, {});
+    impl_->day = *dayRes;
+
+    static const std::vector<std::u16string> dayPeriodValues = {u"narrow", u"short", u"long"};
+    auto dayPeriodRes = getOptionString(runtime, options, u"dayPeriod", dayPeriodValues, {});
+    impl_->dayPeriod = *dayPeriodRes;
+    
+    static const std::vector<std::u16string> hourValues = {u"2-digit", u"numeric"};
+    auto hourRes = getOptionString(runtime, options, u"hour", hourValues, {});
+    impl_->hour = *hourRes;
+
+    static const std::vector<std::u16string> minuteValues = { u"2-digit", u"numeric"};
+    auto minuteRes = getOptionString(runtime, options, u"minute", minuteValues, {});
+    impl_->minute = *minuteRes;
+
+    static const std::vector<std::u16string> secondValues = {u"2-digit", u"numeric"};
+    auto secondRes =getOptionString(runtime, options, u"second", secondValues, {});
+    impl_->second = *secondRes;
+    
+  /**
     UErrorCode status = U_ZERO_ERROR;
     impl_->dtf = udat_open(timeStyle, dateStyle, locale8.c_str(), 0, -1, NULL, -1, &status);
     // DateTimeFormat is expected to use the "proleptic Gregorian calendar", which means that the Julian calendar should never be used.
@@ -423,7 +487,9 @@ vm::ExecutionStatus DateTimeFormat::initialize(
         double beginningOfTime = -8.64e15;
         ucal_setGregorianChange(impl_->calendar, beginningOfTime, &status);
         double actualGregorianChange = ucal_getGregorianChange(impl_->calendar, &status);
-    }
+    }**/
+
+    impl_->dtf = impl_->getUDateFormatter();
 
   return vm::ExecutionStatus::RETURNED;
 }
@@ -446,6 +512,7 @@ Options DateTimeFormat::resolvedOptions() noexcept {
   options.emplace(u"timeZoneName", impl_->timeZoneName);
   options.emplace(u"dateStyle", impl_->dateStyle);
   options.emplace(u"timeStyle", impl_->timeStyle);
+  //options.emplace(u"options", impl_->option);
   return options;
 }
 
@@ -481,6 +548,135 @@ DateTimeFormat::formatToParts(double jsTimeValue) noexcept {
   std::string s = std::to_string(jsTimeValue);
   part[u"value"] = {s.begin(), s.end()};
   return std::vector<std::unordered_map<std::u16string, std::u16string>>{part};
+}
+
+UDateFormat *DateTimeFormat::Impl::getUDateFormatter(){
+  // conversion helper: UTF-8 to/from UTF-16
+  std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> conversion;
+  std::string locale8 = conversion.to_bytes(locale);
+
+  static std::u16string  eLong = u"long", eShort = u"short", eNarrow = u"narrow", eMedium = u"medium", eFull = u"full", eNumeric = u"numeric", eTwoDigit = u"2-digit", eShortOffset = u"shortOffset",
+  eLongOffset = u"longOffset", eShortGeneric = u"shortGeneric", eLongGeneric = u"longGeneric";
+
+  // timeStyle and dateStyle cannot be used in conjection with the other options.
+  if (!timeStyle.empty() || !dateStyle.empty()) {
+    UDateFormatStyle dateStyleRes = UDAT_DEFAULT;
+    UDateFormatStyle timeStyleRes = UDAT_DEFAULT;
+
+    if (!dateStyle.empty()) {
+      if(dateStyle == eFull)
+          dateStyleRes = UDAT_FULL;
+      else if(dateStyle == eLong)
+          dateStyleRes = UDAT_LONG;
+      else if(dateStyle == eMedium)
+          dateStyleRes = UDAT_MEDIUM;
+      else if(dateStyle == eShort)
+          dateStyleRes = UDAT_SHORT;
+    }
+
+    if (!timeStyle.empty()) {
+      if (timeStyle == eFull)
+        dateStyleRes = UDAT_FULL;
+      else if (timeStyle == eLong)
+        dateStyleRes = UDAT_LONG;
+      else if (timeStyle == eMedium)
+        dateStyleRes = UDAT_MEDIUM;
+      else if (timeStyle == eShort)
+        dateStyleRes = UDAT_SHORT;
+    }
+
+    UErrorCode status = U_ZERO_ERROR;
+    return udat_open(timeStyleRes, dateStyleRes, locale8.c_str(), 0, -1, NULL, -1, &status);    
+  }
+  
+  // Else: lets create the skelton
+  std::u16string customDate = u"";
+  if (!weekday.empty()) {
+      if(weekday == eNarrow)
+        customDate += u"EEEEE";
+      else if(weekday == eLong)
+        customDate += u"EEEE";
+      else if(weekday == eShort)
+        customDate += u"EEE";
+  }
+        
+  if (!era.empty()) {
+    if(era == eNarrow)
+      customDate += u"GGGGG";
+    else if(era == eShort)
+      customDate += u"G";
+    else if(era == eLong)
+      customDate += u"GGGG";
+  }
+
+  if (!year.empty()) {
+    if(year == eNumeric)
+      customDate += u"y";
+    else if(year == eTwoDigit)
+      customDate += u"yy";
+  }
+
+  if (!month.empty()){
+    if (month == eTwoDigit)
+      customDate += u"MM";
+    else if (month == eNumeric)
+      customDate += u'M';
+    else if (month == eNarrow)
+      customDate += u"MMMMM";
+    else if (month == eShort)
+      customDate += u"MMM";
+    else if (month == eLong)
+      customDate += u"MMMM";
+  }
+
+  if(!day.empty()){
+    if(day == eNumeric)
+      customDate += u"d";
+    else if (day == eTwoDigit)
+      customDate += u"dd";
+  }
+
+  if(!minute.empty()){
+    if(minute == eNumeric)
+      customDate += u"m";
+    else if (minute == eTwoDigit)
+      customDate += u"mm";
+  }
+
+  if(!second.empty()){
+    if(second == eNumeric)
+      customDate += u"s";
+    else if (second == eTwoDigit)
+      customDate += u"ss";
+  }
+
+  if(!timeZoneName.empty()){
+    if(timeZoneName == eShort)
+      customDate += u"z";
+    else if (timeZoneName == eLong)
+      customDate += u"zzzz";
+  }
+
+
+  
+  UErrorCode status = U_ZERO_ERROR;
+  const UChar* skeleton = reinterpret_cast<const UChar*>(customDate.c_str());
+  UChar bestpattern[40];
+  UDateTimePatternGenerator* dtpGenerator = udatpg_open(locale8.c_str(), &status);
+
+  if (U_FAILURE(status)) {
+      //std::cout << "Failed to intialize generator";
+  }
+
+
+  int32_t patternLength = udatpg_getBestPattern(dtpGenerator, skeleton, -1, NULL, 0, &status);
+
+  if (status == U_BUFFER_OVERFLOW_ERROR) {
+      status = U_ZERO_ERROR;
+      udatpg_getBestPattern(dtpGenerator, skeleton, customDate.length(), bestpattern, patternLength, &status);
+  }
+
+  return udat_open(UDAT_PATTERN, UDAT_PATTERN, locale8.c_str(), 0, -1, bestpattern, patternLength, &status);
 }
 
 struct NumberFormat::Impl {
