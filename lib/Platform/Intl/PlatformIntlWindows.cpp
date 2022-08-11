@@ -231,7 +231,14 @@ vm::CallResult<std::u16string> getOptionString(
   return std::u16string(value);
 }
 
-bool getOptionBool(
+// boolean + null option
+enum BoolNull {
+    eFalse,
+    eTrue,
+    eNull
+};
+
+BoolNull getOptionBool(
     vm::Runtime *runtime,
     const Options& options,
     const std::u16string& property,
@@ -241,10 +248,13 @@ bool getOptionBool(
     auto value = options.find(property);
     //  3. If value is undefined, return fallback.
     if (value == options.end()) {
-      return fallback;
+        return eNull;
     }
     //  8. Return value.
-    return value->second.getBool();
+    if (value->second.getBool()) {
+        return eTrue;
+    }
+    return eFalse;   
 }
 
 // Implementation of
@@ -330,6 +340,22 @@ Options toDateTimeOptions(
 /**Testing
 
 date = new Date(Date.UTC(2020, 0, 2, 3, 45, 00, 30));
+oldDate = new Date(Date.UTC(1952, 0, 9, 8, 04, 03, 05));
+
+new Intl.DateTimeFormat('en-US').format(date);
+
+new Intl.DateTimeFormat('en-GB').format(date);
+
+new Intl.DateTimeFormat('de-DE').format(date);
+
+new Intl.DateTimeFormat('en-US').format(oldDate);
+
+new Intl.DateTimeFormat('en-GB').format(oldDate);
+
+new Intl.DateTimeFormat('de-DE').format(oldDate);
+
+new Intl.DateTimeFormat('ko-KR', { dateStyle: 'medium', timeStyle: 'medium' }).format(date);
+
 dtf = new Intl.DateTimeFormat('en-GB', { dateStyle: 'short', timeStyle: 'short' })
 dtf.resolvedOptions();
 dtf.format(date)
@@ -364,6 +390,7 @@ struct DateTimeFormat::Impl {
   std::u16string timeStyle;
   std::u16string hourCycle;
   UDateFormat *getUDateFormatter();
+  std::u16string getDefaultHourCycle();
 };
 
 DateTimeFormat::DateTimeFormat() : impl_(std::make_unique<Impl>()) {}
@@ -404,6 +431,7 @@ vm::ExecutionStatus DateTimeFormat::initialize(
     // 6. Let calendar be ? GetOption(options, "calendar", "string", undefined, undefined).
     auto calendar = getOptionString(runtime, options, u"calendar", {}, {});
     opt.emplace(u"ca", calendar.getValue());
+
     // 9. Let numberingSystem be ? GetOption(options, "numberingSystem",
     // "string", undefined, undefined).
     // 10. If numberingSystem is not undefined, then
@@ -414,26 +442,73 @@ vm::ExecutionStatus DateTimeFormat::initialize(
     opt.emplace(u"nu", u"");
 
     // 12. Let hour12 be ? GetOption(options, "hour12", "boolean", undefined, undefined).
-    bool hour12 = getOptionBool(runtime, options, u"hour12", {});
+    BoolNull hour12 = getOptionBool(runtime, options, u"hour12", {});
 
     // 13. Let hourCycle be ? GetOption(options, "hourCycle", "string", «"h11", "h12", "h23", "h24" », undefined).
     static const std::vector<std::u16string> hourCycles = {u"h11", u"h12", u"h23", u"h24"};
-    auto hourCycle = getOptionString(runtime, options, u"hourCycle", hourCycles, {});
-    auto hourCycleOpt = *hourCycle;
+    auto hourCycleRes = getOptionString(runtime, options, u"hourCycle", hourCycles, {});
+    std::u16string hourCycle = hourCycleRes.getValue();
 
     // 14. If hour12 is not undefined, then a. Set hourCycle to null.
+    if(!(hour12 == eNull)){
+      hourCycle = u"";
+    }
     // 15. Set opt.[[hc]] to hourCycle.
+    opt.emplace(u"hc", hourCycle);
 
-    auto collationRes = getOptionString(runtime, options, u"collation", {}, {});
-    opt.emplace(u"co", collationRes.getValue());
+    // 16. Let localeData be %DateTimeFormat%.[[LocaleData]].
+    // 17. Let r be ResolveLocale(%DateTimeFormat%.[[AvailableLocales]], requestedLocales, opt, %DateTimeFormat%.[[RelevantExtensionKeys]], localeData).
+    // 18. Set dateTimeFormat.[[Locale]] to r.[[locale]].
+    // 19. Let calendar be r.[[ca]
+    // 20. Set dateTimeFormat.[[Calendar]] to calendar.
+    // 21. Set dateTimeFormat.[[HourCycle]] to r.[[hc]].
+    // 22. Set dateTimeFormat.[[NumberingSystem]] to r.[[nu]].
+    // 23. Let dataLocale be r.[[dataLocale]].
+
+
+    // 24. Let timeZone be ? Get(options, "timeZone").
+    auto timeZoneRes = options.find(u"timeZone");
+    //  25. If timeZone is undefined, then
+    if (timeZoneRes == options.end()){
+      // a. Let timeZone be DefaultTimeZone().
+      // 26. Else,
+    } else {
+      // a. Let timeZone be ? ToString(timeZone).
+      std::u16string timeZone = std::u16string(timeZoneRes->second.getString());
+      // b. If the result of IsValidTimeZoneName(timeZone) is false, then
+      // i. Throw a RangeError exception.
+      // c. Let timeZone be CanonicalizeTimeZoneName(timeZone).
+      // 27. Set dateTimeFormat.[[TimeZone]] to timeZone.
+      impl_->timeZone = timeZone;
+    }
+    
+    // 28. Let opt be a new Record.
+    // 29. For each row of Table 4, except the header row, in table order, do
+    // a. Let prop be the name given in the Property column of the row.
+    // b. If prop is "fractionalSecondDigits", then
+    // i. Let value be ? GetNumberOption(options, "fractionalSecondDigits", 1,
+    // 3, undefined).
+    // d. Set opt.[[<prop>]] to value.
+    // c. Else,
+    // i. Let value be ? GetOption(options, prop, "string", « the strings
+    // given in the Values column of the row », undefined).
+    // d. Set opt.[[<prop>]] to value.
+    // 30. Let dataLocaleData be localeData.[[<dataLocale>]].
+    // 31. Let matcher be ? GetOption(options, "formatMatcher", "string", «
+    // "basic", "best fit" », "best fit").
+
+
+    // 32. Let dateStyle be ? GetOption(options, "dateStyle", "string", « "full",
+    // "long", "medium", "short" », undefined).
     static const std::vector<std::u16string> dateStyles = {u"full", u"long", u"medium", u"short" };
     auto dateStyleRes = getOptionString(runtime, options, u"dateStyle", dateStyles, {});
     // 33. Set dateTimeFormat.[[DateStyle]] to dateStyle.
     impl_->dateStyle = dateStyleRes.getValue();
 
+    // 34. Let timeStyle be ? GetOption(options, "timeStyle", "string", « "full", "long", "medium", "short" », undefined).
     static const std::vector<std::u16string> timeStyles = { u"full", u"long", u"medium", u"short" };
     auto timeStyleRes = getOptionString(runtime, options, u"timeStyle", timeStyles, {});
-    // 33. Set dateTimeFormat.[[DateStyle]] to dateStyle.
+    // 35. Set dateTimeFormat.[[TimeStyle]] to timeStyle.
     impl_->timeStyle = timeStyleRes.getValue();
 
 
@@ -473,24 +548,90 @@ vm::ExecutionStatus DateTimeFormat::initialize(
     static const std::vector<std::u16string> secondValues = {u"2-digit", u"numeric"};
     auto secondRes =getOptionString(runtime, options, u"second", secondValues, {});
     impl_->second = *secondRes;
-    
-  /**
-    UErrorCode status = U_ZERO_ERROR;
-    impl_->dtf = udat_open(timeStyle, dateStyle, locale8.c_str(), 0, -1, NULL, -1, &status);
-    // DateTimeFormat is expected to use the "proleptic Gregorian calendar", which means that the Julian calendar should never be used.
-    // To accomplish this, we can set the switchover date between julian/gregorian
-    // to the ECMAScript beginning of time, which is -8.64e15 according to ecma262 #sec-time-values-and-time-range
-    impl_->calendar = const_cast<UCalendar*>(udat_getCalendar(impl_->dtf));
-    const char* calType = ucal_getType(impl_->calendar, &status);
-    if (strcmp(calType, "gregorian") == 0)
-    {
-        double beginningOfTime = -8.64e15;
-        ucal_setGregorianChange(impl_->calendar, beginningOfTime, &status);
-        double actualGregorianChange = ucal_getGregorianChange(impl_->calendar, &status);
-    }**/
 
-    impl_->dtf = impl_->getUDateFormatter();
+    static const std::vector<std::u16string> timeZoneNameValues = {u"short", u"long", u"shortOffset", u"longOffset", u"shortGeneric", u"longGeneric"};
+    auto timeZoneNameRes = getOptionString(runtime, options, u"timeZoneName", timeZoneNameValues, {});
+    impl_->timeZoneName = *timeZoneNameRes;
 
+    // 36. If dateStyle is not undefined or timeStyle is not undefined, then
+    // a. For each row in Table 4, except the header row, do
+    // i. Let prop be the name given in the Property column of the row.
+    // ii. Let p be opt.[[<prop>]].
+    // iii. If p is not undefined, then
+    // 1. Throw a TypeError exception.
+    // b. Let styles be dataLocaleData.[[styles]].[[<calendar>]].
+    // c. Let bestFormat be DateTimeStyleFormat(dateStyle, timeStyle, styles).
+    // 37. Else,
+    // a. Let formats be dataLocaleData.[[formats]].[[<calendar>]].
+    // b. If matcher is "basic", then
+    // i. Let bestFormat be BasicFormatMatcher(opt, formats).
+    // c. Else,
+    // i. Let bestFormat be BestFitFormatMatcher(opt, formats).
+    // 38. For each row in Table 4, except the header row, in table order, do
+    // for (auto const &row : table4) {
+    // a. Let prop be the name given in the Property column of the row.
+    // auto prop = row.first;
+    // b. If bestFormat has a field [[<prop>]], then
+    // i. Let p be bestFormat.[[<prop>]].
+    // ii. Set dateTimeFormat's internal slot whose name is the Internal
+    // Slot column of the row to p.
+
+    // 39. If dateTimeFormat.[[Hour]] is undefined, then
+    if (impl_->hour.empty()) {
+      // a. Set dateTimeFormat.[[HourCycle]] to undefined.
+      impl_->hourCycle = u"";
+    // b. Let pattern be bestFormat.[[pattern]].
+    // c. Let rangePatterns be bestFormat.[[rangePatterns]].
+    // 40. Else,
+  } else {
+    // a. Let hcDefault be dataLocaleData.[[hourCycle]].
+    std::u16string hcDefault = impl_->getDefaultHourCycle();
+    // b. Let hc be dateTimeFormat.[[HourCycle]].
+    auto hc = impl_->hourCycle;
+    // c. If hc is null, then
+    if (hc.empty())
+      // i. Set hc to hcDefault.
+      hc = hcDefault;
+    // d. If hour12 is not undefined, then
+    if (!(hour12 == eNull)) {
+      // i. If hour12 is true, then
+      if ((hour12 == eTrue)) {
+        // 1. If hcDefault is "h11" or "h23", then
+        if (hcDefault == u"h11" || hcDefault == u"h23") {
+          // a. Set hc to "h11".
+          hc = u"h11";
+          // 2. Else,
+        } else {
+          // a. Set hc to "h12".
+          hc = u"h12";
+        }
+        // ii. Else,
+      } else {
+        // 1. Assert: hour12 is false.
+        // 2. If hcDefault is "h11" or "h23", then
+        if (hcDefault == u"h11" || hcDefault == u"h23") {
+          // a. Set hc to "h23".
+          hc = u"h23";
+          // 3. Else,
+        } else {
+          // a. Set hc to "h24".
+          hc = u"h24";
+        }
+      }
+    }
+    // e. Set dateTimeFormat.[[HourCycle]] to hc.
+    impl_->hourCycle = hc;
+    // f. If dateTimeformat.[[HourCycle]] is "h11" or "h12", then
+    // i. Let pattern be bestFormat.[[pattern12]].
+    // ii. Let rangePatterns be bestFormat.[[rangePatterns12]].
+    // g. Else,
+    // i. Let pattern be bestFormat.[[pattern]].
+    // ii. Let rangePatterns be bestFormat.[[rangePatterns]].
+  }
+  // 41. Set dateTimeFormat.[[Pattern]] to pattern.
+  // 42. Set dateTimeFormat.[[RangePatterns]] to rangePatterns.
+  // 43. Return dateTimeFormat
+  impl_->dtf = impl_->getUDateFormatter();
   return vm::ExecutionStatus::RETURNED;
 }
 
@@ -521,23 +662,23 @@ std::u16string DateTimeFormat::format(double jsTimeValue) noexcept {
   // conversion helper: UTF-8 to/from UTF-16
   std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> conversion;
 
-    auto timeInSeconds = jsTimeValue / 1000;
-    UDate *date = new UDate(timeInSeconds);
-    UErrorCode status = U_ZERO_ERROR;
-    UChar *myString;
-    int myStrlen = 0;
+  auto timeInSeconds = jsTimeValue;
+  UDate *date = new UDate(timeInSeconds);
+  UErrorCode status = U_ZERO_ERROR;
+  UChar *myString;
+  int myStrlen = 0;
 
-    myStrlen = udat_format(impl_->dtf, *date, NULL, myStrlen, NULL, &status);
-    if (status == U_BUFFER_OVERFLOW_ERROR) {
-        status = U_ZERO_ERROR;
-        myString = (UChar*)malloc(sizeof(UChar) * (myStrlen + 1));
-        udat_format(impl_->dtf, *date, myString, myStrlen + 1, NULL, &status);
+  myStrlen = udat_format(impl_->dtf, *date, NULL, myStrlen, NULL, &status);
+  if (status == U_BUFFER_OVERFLOW_ERROR) {
+      status = U_ZERO_ERROR;
+      myString = (UChar*)malloc(sizeof(UChar) * (myStrlen + 1));
+      udat_format(impl_->dtf, *date, myString, myStrlen + 1, NULL, &status);
             
-        char *dts = (char*)malloc(sizeof(UChar) * (myStrlen + 1));    
-        return myString;
-      }
+      char *dts = (char*)malloc(sizeof(UChar) * (myStrlen + 1));    
+      return myString;
+    }
         
-    return u"failed";
+  return u"failed";
 }
 
 std::vector<std::unordered_map<std::u16string, std::u16string>>
@@ -548,6 +689,40 @@ DateTimeFormat::formatToParts(double jsTimeValue) noexcept {
   std::string s = std::to_string(jsTimeValue);
   part[u"value"] = {s.begin(), s.end()};
   return std::vector<std::unordered_map<std::u16string, std::u16string>>{part};
+}
+
+std::u16string DateTimeFormat::Impl::getDefaultHourCycle(){
+  // conversion helper: UTF-8 to/from UTF-16
+  std::wstring_convert<std::codecvt_utf8_utf16<char16_t>, char16_t> conversion;
+  std::string locale8 = conversion.to_bytes(locale);
+
+  UErrorCode status = U_ZERO_ERROR;
+  UChar* myString;
+  UDateFormat* testdtf= udat_open(UDAT_DEFAULT, UDAT_DEFAULT, locale8.c_str(), 0, -1, NULL, -1, &status);
+  int32_t size = udat_toPattern(testdtf,true,NULL,0,&status);
+  if (status == U_BUFFER_OVERFLOW_ERROR) {
+      status = U_ZERO_ERROR;
+      myString = (UChar*)malloc(sizeof(UChar) * (size + 1));
+      udat_toPattern(testdtf, true, myString, 40, &status);
+      for (int32_t i = 0; i < size; i++) {
+          char16_t ch = myString[i];
+          switch (ch) {
+          case 'K':
+            return u"h11";
+            break;
+          case 'h':
+            return u"h12";
+            break;
+          case 'H':
+            return u"h23";
+            break;
+          case 'k':
+            return u"h24";
+            break;
+          }
+        }
+    }
+  return u"";
 }
 
 UDateFormat *DateTimeFormat::Impl::getUDateFormatter(){
@@ -598,6 +773,19 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(){
         customDate += u"EEEE";
       else if(weekday == eShort)
         customDate += u"EEE";
+  }
+
+  if(!timeZoneName.empty()){
+    if (timeZoneName == eShort) 
+      customDate += u"z";
+    else if (timeZoneName == eLong) 
+      customDate += u"zzzz";
+    else if (timeZoneName == eShortOffset) 
+      customDate += u"O";
+    else if (timeZoneName == eLongOffset) 
+      customDate += u"OOOO";
+    else if (timeZoneName == eShortGeneric) 
+      customDate += u"v";  
   }
         
   if (!era.empty()) {
@@ -650,13 +838,29 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(){
       customDate += u"ss";
   }
 
-  if(!timeZoneName.empty()){
-    if(timeZoneName == eShort)
-      customDate += u"z";
-    else if (timeZoneName == eLong)
-      customDate += u"zzzz";
+  if(!hour.empty()){
+    if(hourCycle == u"h12"){
+      if(hour == eNumeric)
+        customDate += u"h";
+      else if (hour == eTwoDigit)
+        customDate += u"hh";
+    } else if (hourCycle == u"h24"){
+      if(hour == eNumeric)
+        customDate += u"k";
+      else if (hour == eTwoDigit)
+        customDate += u"kk";
+    } else if (hourCycle == u"h11"){
+      if(hour == eNumeric)
+        customDate += u"k";
+      else if (hour == eTwoDigit)
+        customDate += u"KK";
+    } else {
+      if(hour == eNumeric)
+        customDate += u"h";
+      else if (hour == eTwoDigit)
+        customDate += u"HH";
+    }
   }
-
 
   
   UErrorCode status = U_ZERO_ERROR;
