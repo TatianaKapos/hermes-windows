@@ -651,9 +651,9 @@ Options DateTimeFormat::resolvedOptions() noexcept {
   options.emplace(u"minute", impl_->minute);
   options.emplace(u"second", impl_->second);
   options.emplace(u"timeZoneName", impl_->timeZoneName);
+  options.emplace(u"timeZone", impl_->timeZone);
   options.emplace(u"dateStyle", impl_->dateStyle);
   options.emplace(u"timeStyle", impl_->timeStyle);
-  //options.emplace(u"options", impl_->option);
   return options;
 }
 
@@ -880,6 +880,12 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(){
       udatpg_getBestPattern(dtpGenerator, skeleton, customDate.length(), bestpattern, patternLength, &status);
   }
 
+  // if timezone is specified, use that instead, else use default
+  if(!timeZone.empty()){
+    const UChar* timeZoneRes = reinterpret_cast<const UChar*>(conversion.to_bytes(timeZone).c_str());
+    int32_t timeZoneLength = timeZone.length();
+    return udat_open(UDAT_PATTERN, UDAT_PATTERN, locale8.c_str(), timeZoneRes, timeZoneLength, bestpattern, patternLength, &status);
+  }
   return udat_open(UDAT_PATTERN, UDAT_PATTERN, locale8.c_str(), 0, -1, bestpattern, patternLength, &status);
 }
 
