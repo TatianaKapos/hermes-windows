@@ -436,10 +436,13 @@ dtf = new Intl.DateTimeFormat('en-GB', { dateStyle: 'short', timeStyle: 'short'
 
 dtf = new Intl.DateTimeFormat('en-US', { dateStyle: 'full', timeStyle: 'full' })
 dtf.resolvedOptions();
-dtf.format(date)
+dtf.format(date);
 
 dtf = new Intl.DateTimeFormat('en-US', {year: "2-digit", month: "narrow"});
 dtf.resolvedOptions();
+geeks = ['ban', 'id-u-co-pinyin', 'de-ID'];
+result = { localeMatcher: 'lookup' };
+Intl.DateTimeFormat.supportedLocalesOf(geeks, result);
 dtf.format(date)
 **/
 
@@ -450,6 +453,7 @@ struct DateTimeFormat::Impl {
   UDateFormat *dtf;
   UCalendar *calendar;
   std::u16string locale;
+  const char * locale8;
   std::u16string timeZone;
   std::u16string weekday;
   std::u16string era;
@@ -464,7 +468,7 @@ struct DateTimeFormat::Impl {
   std::u16string dateStyle;
   std::u16string timeStyle;
   std::u16string hourCycle;
-  vm::CallResult<UDateFormat> getUDateFormatter(vm::Runtime &runtime);
+  UDateFormat *getUDateFormatter(vm::Runtime &runtime);
   vm::CallResult<std::u16string> getDefaultHourCycle(vm::Runtime &runtime);
 };
 
@@ -476,7 +480,13 @@ vm::CallResult<std::vector<std::u16string>> DateTimeFormat::supportedLocalesOf(
     vm::Runtime &runtime,
     const std::vector<std::u16string> &locales,
     const Options &options) noexcept {
-  return std::vector<std::u16string>{u"en-CA", u"de-DE"};
+
+  std::vector<std::u16string> result = {};
+  for(int32_t i = 0; i < uloc_countAvailable(); i++){
+    auto locale = uloc_getAvailable(i);
+    result.push_back(UTF8toUTF16(runtime, locale).getValue());
+  }
+  return result;
 }
 
 // initalize dtf
@@ -484,11 +494,13 @@ vm::ExecutionStatus DateTimeFormat::initialize(
     vm::Runtime &runtime,
     const std::vector<std::u16string> &locales,
     const Options &inputOptions) noexcept {
+
   auto requestedLocalesRes = CanonicalizeLocaleList(runtime, locales);
   impl_->locale = locales.front();
   
   auto conversion = UTF16toUTF8(runtime, impl_->locale);
   const char * locale8 = conversion.getValue().c_str();
+  impl_->locale8 = locale8;
 
   // 2. Let options be ? ToDateTimeOptions(options, "any", "date").
   Options options = toDateTimeOptions(runtime, inputOptions, u"any", u"date");
@@ -735,14 +747,17 @@ vm::ExecutionStatus DateTimeFormat::initialize(
   // 41. Set dateTimeFormat.[[Pattern]] to pattern.
   // 42. Set dateTimeFormat.[[RangePatterns]] to rangePatterns.
   // 43. Return dateTimeFormat
-  auto UDateFormatter = impl_->getUDateFormatter(runtime);
-  impl_->dtf =  reinterpret_cast<UDateFormat *>(&UDateFormatter.getValue());
+
+  //auto UDateFormatter = impl_->getUDateFormatter(runtime);
+  //impl_->dtf =  reinterpret_cast<UDateFormat *>(&UDateFormatter.getValue());
+  impl_->dtf = impl_->getUDateFormatter(runtime);
   return vm::ExecutionStatus::RETURNED;
 }
 
 Options DateTimeFormat::resolvedOptions() noexcept {
   Options options;
   options.emplace(u"locale", Option(impl_->locale));
+  options.emplace(u"locale8", impl_->locale8);
   options.emplace(u"numeric", Option(false));
   options.emplace(u"timeZone", Option(impl_->timeZone));
   options.emplace(u"calendar", Option(impl_->calendar));
@@ -793,8 +808,8 @@ DateTimeFormat::formatToParts(double jsTimeValue) noexcept {
 }
 
 vm::CallResult<std::u16string> DateTimeFormat::Impl::getDefaultHourCycle(vm::Runtime &runtime) {
-  auto conversion = UTF16toUTF8(runtime, locale);
-  const char * locale8 = conversion.getValue().c_str();
+  //auto conversion = UTF16toUTF8(runtime, locale);
+  //const char * locale8 = conversion.getValue().c_str();
 
   UErrorCode status = U_ZERO_ERROR;
   UChar *myString;
@@ -826,9 +841,9 @@ vm::CallResult<std::u16string> DateTimeFormat::Impl::getDefaultHourCycle(vm::Run
   return u"";
 }
 
-vm::CallResult<UDateFormat> DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
-  auto conversion = UTF16toUTF8(runtime, locale);
-  const char * locale8 = conversion.getValue().c_str();
+UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
+  //auto conversion = UTF16toUTF8(runtime, locale);
+  //const char * locale8 = conversion.getValue().c_str();
 
   static std::u16string eLong = u"long", eShort = u"short", eNarrow = u"narrow",
                         eMedium = u"medium", eFull = u"full",
@@ -857,13 +872,13 @@ vm::CallResult<UDateFormat> DateTimeFormat::Impl::getUDateFormatter(vm::Runtime 
 
     if (!timeStyle.empty()) {
       if (timeStyle == eFull)
-        dateStyleRes = UDAT_FULL;
+        timeStyleRes = UDAT_FULL;
       else if (timeStyle == eLong)
-        dateStyleRes = UDAT_LONG;
+        timeStyleRes = UDAT_LONG;
       else if (timeStyle == eMedium)
-        dateStyleRes = UDAT_MEDIUM;
+        timeStyleRes = UDAT_MEDIUM;
       else if (timeStyle == eShort)
-        dateStyleRes = UDAT_SHORT;
+        timeStyleRes = UDAT_SHORT;
     }
 
     UErrorCode status = U_ZERO_ERROR;
