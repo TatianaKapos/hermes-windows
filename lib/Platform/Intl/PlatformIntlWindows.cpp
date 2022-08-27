@@ -38,7 +38,9 @@ namespace hermes {
 namespace platform_intl {
 
 // convert utf8 string to utf16
-vm::CallResult<std::u16string> UTF8toUTF16(vm::Runtime &runtime, std::string_view in) {
+vm::CallResult<std::u16string> UTF8toUTF16(
+    vm::Runtime &runtime,
+    std::string_view in) {
   std::u16string out;
   size_t length = in.length();
   out.resize(length);
@@ -52,8 +54,7 @@ vm::CallResult<std::u16string> UTF8toUTF16(vm::Runtime &runtime, std::string_vie
       &targetStart,
       targetEnd,
       llvh::lenientConversion);
-  if (convRes != llvh::ConversionResult::conversionOK)
-  {
+  if (convRes != llvh::ConversionResult::conversionOK) {
     return runtime.raiseRangeError("utf8 to utf16 conversion failed");
   }
   out.resize(reinterpret_cast<char16_t *>(targetStart) - &out[0]);
@@ -61,11 +62,14 @@ vm::CallResult<std::u16string> UTF8toUTF16(vm::Runtime &runtime, std::string_vie
 }
 
 // convert utf16 string to utf8
-vm::CallResult<std::string> UTF16toUTF8(vm::Runtime &runtime, std::u16string in) {
+vm::CallResult<std::string> UTF16toUTF8(
+    vm::Runtime &runtime,
+    std::u16string in) {
   std::string out;
   size_t length = in.length();
   out.resize(length);
-  const llvh::UTF16 *sourceStart = reinterpret_cast<const llvh::UTF16 *>(&in[0]);
+  const llvh::UTF16 *sourceStart =
+      reinterpret_cast<const llvh::UTF16 *>(&in[0]);
   const llvh::UTF16 *sourceEnd = sourceStart + length;
   llvh::UTF8 *targetStart = reinterpret_cast<llvh::UTF8 *>(&out[0]);
   llvh::UTF8 *targetEnd = targetStart + out.size();
@@ -75,8 +79,7 @@ vm::CallResult<std::string> UTF16toUTF8(vm::Runtime &runtime, std::u16string in)
       &targetStart,
       targetEnd,
       llvh::lenientConversion);
-  if (convRes != llvh::ConversionResult::conversionOK)
-  {
+  if (convRes != llvh::ConversionResult::conversionOK) {
     return runtime.raiseRangeError("utf16 to utf8 conversion failed");
   }
   out.resize(reinterpret_cast<char *>(targetStart) - &out[0]);
@@ -94,7 +97,7 @@ vm::CallResult<std::u16string> NormalizeLanguageTag(
   }
 
   auto conversion = UTF16toUTF8(runtime, locale);
-  const char * locale8 = conversion.getValue().c_str();
+  const char *locale8 = conversion.getValue().c_str();
 
   // [Comment from ChakreCore] ICU doesn't have a full-fledged canonicalization
   // implementation that correctly replaces all preferred values and
@@ -109,32 +112,25 @@ vm::CallResult<std::u16string> NormalizeLanguageTag(
   char languageTag[ULOC_FULLNAME_CAPACITY] = {0};
 
   int32_t forLangTagResultLength = uloc_forLanguageTag(
-      locale8,
-      localeID,
-      ULOC_FULLNAME_CAPACITY,
-      &parsedLength,
-      &status);
+      locale8, localeID, ULOC_FULLNAME_CAPACITY, &parsedLength, &status);
   if (forLangTagResultLength < 0 || parsedLength < locale.length() ||
       status == U_ILLEGAL_ARGUMENT_ERROR) {
     return runtime.raiseRangeError(
-        vm::TwineChar16("Invalid language tag: ") +
-        vm::TwineChar16(locale8));
+        vm::TwineChar16("Invalid language tag: ") + vm::TwineChar16(locale8));
   }
 
   int32_t canonicalizeResultLength =
       uloc_canonicalize(localeID, fullname, ULOC_FULLNAME_CAPACITY, &status);
   if (canonicalizeResultLength <= 0) {
     return runtime.raiseRangeError(
-        vm::TwineChar16("Invalid language tag: ") +
-        vm::TwineChar16(locale8));
+        vm::TwineChar16("Invalid language tag: ") + vm::TwineChar16(locale8));
   }
 
   int32_t toLangTagResultLength = uloc_toLanguageTag(
       fullname, languageTag, ULOC_FULLNAME_CAPACITY, true, &status);
   if (forLangTagResultLength <= 0) {
     return runtime.raiseRangeError(
-        vm::TwineChar16("Invalid language tag: ") +
-        vm::TwineChar16(locale8));
+        vm::TwineChar16("Invalid language tag: ") + vm::TwineChar16(locale8));
   }
 
   return UTF8toUTF16(runtime, languageTag);
@@ -161,8 +157,9 @@ vm::CallResult<std::vector<std::u16string>> CanonicalizeLocaleList(
   // 5-7. Let len be ? ToLength(? Get(O, "length")). Let k be 0. Repeat, while k
   // < len
   for (size_t k = 0; k < locales.size(); k++) {
-    // minimal tag validation is done with ICU, ChakraCore\V8 does not do tag validation with
-    // ICU, may be missing needed API 7.c.iii.1 Let tag be kValue[[locale]]
+    // minimal tag validation is done with ICU, ChakraCore\V8 does not do tag
+    // validation with ICU, may be missing needed API 7.c.iii.1 Let tag be
+    // kValue[[locale]]
     std::u16string tag = locales[k];
     // 7.c.vi Let canonicalizedTag be CanonicalizeUnicodeLocaleID(tag)
     auto canonicalizedTag = NormalizeLanguageTag(runtime, tag);
@@ -239,7 +236,7 @@ vm::ExecutionStatus Collator::initialize(
     const Options &options) noexcept {
   impl_->locale = u"en-US";
   auto conversion = UTF16toUTF8(runtime, impl_->locale);
-  const char * locale8 = conversion.getValue().c_str();
+  const char *locale8 = conversion.getValue().c_str();
   UErrorCode err{U_ZERO_ERROR};
   impl_->coll = ucol_open(locale8, &err);
 
@@ -453,14 +450,14 @@ struct DateTimeFormat::Impl {
   UDateFormat *dtf;
   UCalendar *calendar;
   std::u16string locale;
-  const char * locale8;
+  const char *locale8;
   std::u16string timeZone;
   std::u16string weekday;
   std::u16string era;
   std::u16string year;
   std::u16string month;
   std::u16string day;
-  std::u16string dayPeriod;
+  std::u16string dayPeriod; // Not Supported
   std::u16string hour;
   std::u16string minute;
   std::u16string second;
@@ -480,9 +477,8 @@ vm::CallResult<std::vector<std::u16string>> DateTimeFormat::supportedLocalesOf(
     vm::Runtime &runtime,
     const std::vector<std::u16string> &locales,
     const Options &options) noexcept {
-
   std::vector<std::u16string> result = {};
-  for(int32_t i = 0; i < uloc_countAvailable(); i++){
+  for (int32_t i = 0; i < uloc_countAvailable(); i++) {
     auto locale = uloc_getAvailable(i);
     result.push_back(UTF8toUTF16(runtime, locale).getValue());
   }
@@ -494,12 +490,11 @@ vm::ExecutionStatus DateTimeFormat::initialize(
     vm::Runtime &runtime,
     const std::vector<std::u16string> &locales,
     const Options &inputOptions) noexcept {
-
   auto requestedLocalesRes = CanonicalizeLocaleList(runtime, locales);
   impl_->locale = locales.front();
-  
+
   auto conversion = UTF16toUTF8(runtime, impl_->locale);
-  const char * locale8 = conversion.getValue().c_str();
+  const char *locale8 = conversion.getValue().c_str();
   impl_->locale8 = locale8;
 
   // 2. Let options be ? ToDateTimeOptions(options, "any", "date").
@@ -548,6 +543,7 @@ vm::ExecutionStatus DateTimeFormat::initialize(
   }
   // 15. Set opt.[[hc]] to hourCycle.
   opt.emplace(u"hc", hourCycle);
+  impl_->hourCycle = hourCycle;
 
   // 16. Let localeData be %DateTimeFormat%.[[LocaleData]].
   // 17. Let r be ResolveLocale(%DateTimeFormat%.[[AvailableLocales]],
@@ -748,8 +744,8 @@ vm::ExecutionStatus DateTimeFormat::initialize(
   // 42. Set dateTimeFormat.[[RangePatterns]] to rangePatterns.
   // 43. Return dateTimeFormat
 
-  //auto UDateFormatter = impl_->getUDateFormatter(runtime);
-  //impl_->dtf =  reinterpret_cast<UDateFormat *>(&UDateFormatter.getValue());
+  // auto UDateFormatter = impl_->getUDateFormatter(runtime);
+  // impl_->dtf =  reinterpret_cast<UDateFormat *>(&UDateFormatter.getValue());
   impl_->dtf = impl_->getUDateFormatter(runtime);
   return vm::ExecutionStatus::RETURNED;
 }
@@ -807,14 +803,15 @@ DateTimeFormat::formatToParts(double jsTimeValue) noexcept {
   return std::vector<std::unordered_map<std::u16string, std::u16string>>{part};
 }
 
-vm::CallResult<std::u16string> DateTimeFormat::Impl::getDefaultHourCycle(vm::Runtime &runtime) {
-  //auto conversion = UTF16toUTF8(runtime, locale);
-  //const char * locale8 = conversion.getValue().c_str();
+vm::CallResult<std::u16string> DateTimeFormat::Impl::getDefaultHourCycle(
+    vm::Runtime &runtime) {
+  // auto conversion = UTF16toUTF8(runtime, locale);
+  // const char * locale8 = conversion.getValue().c_str();
 
   UErrorCode status = U_ZERO_ERROR;
   UChar *myString;
-  UDateFormat *testdtf = udat_open(
-      UDAT_DEFAULT, UDAT_DEFAULT, locale8, 0, -1, NULL, -1, &status);
+  UDateFormat *testdtf =
+      udat_open(UDAT_DEFAULT, UDAT_DEFAULT, locale8, 0, -1, NULL, -1, &status);
   int32_t size = udat_toPattern(testdtf, true, NULL, 0, &status);
   if (status == U_BUFFER_OVERFLOW_ERROR) {
     status = U_ZERO_ERROR;
@@ -842,8 +839,8 @@ vm::CallResult<std::u16string> DateTimeFormat::Impl::getDefaultHourCycle(vm::Run
 }
 
 UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
-  //auto conversion = UTF16toUTF8(runtime, locale);
-  //const char * locale8 = conversion.getValue().c_str();
+  // auto conversion = UTF16toUTF8(runtime, locale);
+  // const char * locale8 = conversion.getValue().c_str();
 
   static std::u16string eLong = u"long", eShort = u"short", eNarrow = u"narrow",
                         eMedium = u"medium", eFull = u"full",
@@ -882,8 +879,24 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
     }
 
     UErrorCode status = U_ZERO_ERROR;
-    return udat_open(
-        timeStyleRes, dateStyleRes, locale8, 0, -1, NULL, -1, &status);
+    // if timezone is specified, use that instead, else use default
+    if (!timeZone.empty()) {
+      const UChar *timeZoneRes = reinterpret_cast<const UChar *>(
+          UTF16toUTF8(runtime, timeZone).getValue().c_str());
+      int32_t timeZoneLength = timeZone.length();
+      return udat_open(
+          timeStyleRes,
+          dateStyleRes,
+          locale8,
+          timeZoneRes,
+          timeZoneLength,
+          NULL,
+          -1,
+          &status);
+    } else {
+      return udat_open(
+          timeStyleRes, dateStyleRes, locale8, 0, -1, NULL, -1, &status);
+    }
   }
 
   // Else: lets create the skelton
@@ -908,6 +921,8 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
       customDate += u"OOOO";
     else if (timeZoneName == eShortGeneric)
       customDate += u"v";
+    else if (timeZoneName == eLongGeneric)
+      customDate += u"vvvv";
   }
 
   if (!era.empty()) {
@@ -971,7 +986,7 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
         customDate += u"k";
       else if (hour == eTwoDigit)
         customDate += u"kk";
-    } else if (hourCycle == u"h11") {
+    } else if (hourCycle == u"h23") {
       if (hour == eNumeric)
         customDate += u"k";
       else if (hour == eTwoDigit)
@@ -987,8 +1002,7 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
   UErrorCode status = U_ZERO_ERROR;
   const UChar *skeleton = reinterpret_cast<const UChar *>(customDate.c_str());
   UChar bestpattern[40];
-  UDateTimePatternGenerator *dtpGenerator =
-      udatpg_open(locale8, &status);
+  UDateTimePatternGenerator *dtpGenerator = udatpg_open(locale8, &status);
 
   if (U_FAILURE(status)) {
     // std::cout << "Failed to intialize generator";
@@ -1010,8 +1024,8 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
 
   // if timezone is specified, use that instead, else use default
   if (!timeZone.empty()) {
-    const UChar *timeZoneRes =
-        reinterpret_cast<const UChar *>(UTF16toUTF8(runtime, timeZone).getValue().c_str());
+    const UChar *timeZoneRes = reinterpret_cast<const UChar *>(
+        UTF16toUTF8(runtime, timeZone).getValue().c_str());
     int32_t timeZoneLength = timeZone.length();
     return udat_open(
         UDAT_PATTERN,

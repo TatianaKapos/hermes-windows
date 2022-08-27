@@ -111,6 +111,99 @@ TEST(DateTimeFormat, DatesWithMonthDayYearOptions) {
   auto result = dtf.format(1620000000000.00);
   EXPECT_EQ(result, u"2 mei 2021");
 
+  Options testOptions2 = {{u"day", Option(std::u16string(u"2-digit"))},{u"month", Option(std::u16string(u"narrow"))},{u"year", Option(std::u16string(u"2-digit"))}};
+  auto dtf2 = platform_intl::DateTimeFormat();
+  dtf2.initialize(*runtime.get(), DutchBelgium, testOptions2);
+  auto result2 = dtf2.format(1620000000000.00);
+  EXPECT_EQ(result2, u"02 M 21");
+
+  Options testOptions3 = {{u"month", Option(std::u16string(u"numeric"))},{u"year", Option(std::u16string(u"2-digit"))}};
+  auto dtf3 = platform_intl::DateTimeFormat();
+  dtf3.initialize(*runtime.get(), DutchBelgium, testOptions3);
+  auto result3 = dtf3.format(1620000000000.00);
+  EXPECT_EQ(result3, u"5/21");
+}
+
+// Tests Date with Weekday ( u"narrow", u"short", u"long"), era ( u"narrow", u"short", u"long"), TimeZoneName (u"short",u"long",u"shortOffset",u"longOffset",u"shortGeneric",u"longGeneric")
+TEST(DateTimeFormat, DatesWithWeekdayEraTimeZoneNameOptions) {
+  std::vector<std::u16string> ItalianItaly = std::vector<std::u16string>{u"it-IT"}; //it-IT
+  std::shared_ptr<hermes::vm::Runtime> runtime = hermes::vm::Runtime::create(
+      hermes::vm::RuntimeConfig::Builder().withIntl(true).build());
+
+  Options testOptions = {{u"weekday", Option(std::u16string(u"long"))},{u"era", Option(std::u16string(u"long"))},{u"timeZoneName", Option(std::u16string(u"long"))}};
+  auto dtf = platform_intl::DateTimeFormat();
+  dtf.initialize(*runtime.get(), ItalianItaly, testOptions);
+  auto result = dtf.format(1620000000000.00);
+  EXPECT_EQ(result, u"dopo Cristo domenica, Ora legale del Pacifico USA");
+
+  Options testOptions2 = {{u"weekday", Option(std::u16string(u"short"))},{u"era", Option(std::u16string(u"narrow"))},{u"timeZoneName", Option(std::u16string(u"shortOffset"))}};
+  auto dtf2 = platform_intl::DateTimeFormat();
+  dtf2.initialize(*runtime.get(), ItalianItaly, testOptions2);
+  auto result2 = dtf2.format(1620000000000.00);
+  EXPECT_EQ(result2, u"dC dom, GMT-7");
+
+  Options testOptions3 = {{u"weekday", Option(std::u16string(u"narrow"))},{u"era", Option(std::u16string(u"short"))},{u"timeZoneName", Option(std::u16string(u"longGeneric"))}};
+  auto dtf3 = platform_intl::DateTimeFormat();
+  dtf3.initialize(*runtime.get(), ItalianItaly, testOptions3);
+  auto result3 = dtf3.format(1620000000000.00);
+  EXPECT_EQ(result3, u"d.C. D, Ora del Pacifico USA");
+}
+
+// Tests Date with Hour (2-digit, numeric), Minute (2-digit, numeric), Second (2-digit, numeric) 19:13:20
+TEST(DateTimeFormat, DatesWithHourMinuteSecondOptions) {
+  std::vector<std::u16string> AmericanEnglish = std::vector<std::u16string>{u"en-US"};
+  std::shared_ptr<hermes::vm::Runtime> runtime = hermes::vm::Runtime::create(
+      hermes::vm::RuntimeConfig::Builder().withIntl(true).build());
+
+  Options testOptions = {{u"hour", Option(std::u16string(u"2-digit"))},{u"minute", Option(std::u16string(u"2-digit"))},{u"second", Option(std::u16string(u"2-digit"))}};
+  auto dtf = platform_intl::DateTimeFormat();
+  dtf.initialize(*runtime.get(), AmericanEnglish, testOptions);
+  auto result = dtf.format(1620000000000); //1620008000000
+  EXPECT_EQ(result, u"05:00:00 PM");
+
+  Options testOptions2 = {{u"hour", Option(std::u16string(u"numeric"))},{u"minute", Option(std::u16string(u"numeric"))},{u"second", Option(std::u16string(u"numeric"))}};
+  auto dtf2 = platform_intl::DateTimeFormat();
+  dtf2.initialize(*runtime.get(), AmericanEnglish, testOptions2);
+  auto result2 = dtf2.format(1620000000000);
+  EXPECT_EQ(result2, u"5:00:00 PM");
+}
+
+// Tests Date with HourCycle (u"h11", u"h12", u"h23", u"h24")
+TEST(DateTimeFormat, DatesWithHourCyclesOptions) {
+  std::vector<std::u16string> AmericanEnglish = std::vector<std::u16string>{u"en-US"};
+  std::shared_ptr<hermes::vm::Runtime> runtime = hermes::vm::Runtime::create(
+      hermes::vm::RuntimeConfig::Builder().withIntl(true).build());
+
+  Options testOptions = {{u"hour", Option(std::u16string(u"numeric"))},{u"minute", Option(std::u16string(u"numeric"))},{u"hourCycle", Option(std::u16string(u"h12"))}};
+  auto dtf = platform_intl::DateTimeFormat();
+  dtf.initialize(*runtime.get(), AmericanEnglish, testOptions);
+  auto result = dtf.format(1620008000000); //1620008000000
+  EXPECT_EQ(result, u"7:13 PM");
+
+  Options testOptions2 = {{u"hour", Option(std::u16string(u"numeric"))},{u"minute", Option(std::u16string(u"numeric"))},{u"hourCycle", Option(std::u16string(u"h24"))}};
+  auto dtf2 = platform_intl::DateTimeFormat();
+  dtf2.initialize(*runtime.get(), AmericanEnglish, testOptions2);
+  auto result2 = dtf2.format(1620008000000);
+  EXPECT_EQ(result2, u"19:13");
+
+  Options testOptions3 = {{u"hour", Option(std::u16string(u"numeric"))},{u"minute", Option(std::u16string(u"numeric"))},{u"hourCycle", Option(std::u16string(u"h11"))}};
+  auto dtf3 = platform_intl::DateTimeFormat();
+  dtf3.initialize(*runtime.get(), AmericanEnglish, testOptions3);
+  auto result3 = dtf3.format(1620008000000);
+  EXPECT_EQ(result3, u"7:13 PM");
+}
+
+// Tests Date with specified TimeZone
+TEST(DateTimeFormat, DatesWithTimeZone) {
+  std::vector<std::u16string> AmericanEnglish = std::vector<std::u16string>{u"en-US"};
+  std::shared_ptr<hermes::vm::Runtime> runtime = hermes::vm::Runtime::create(
+      hermes::vm::RuntimeConfig::Builder().withIntl(true).build());
+
+  Options testOptions = {{u"dateStyle", Option(std::u16string(u"long"))},{u"timeStyle", Option(std::u16string(u"long"))},{u"timeZone", Option(std::u16string(u"UTC"))}};
+  auto dtf = platform_intl::DateTimeFormat();
+  dtf.initialize(*runtime.get(), AmericanEnglish, testOptions);
+  auto result = dtf.format(1620000000000.00);
+  EXPECT_EQ(result, u"May 3, 2021 at 12:00:00 AM UTC");
 }
 
 } // end anonymous namespace
