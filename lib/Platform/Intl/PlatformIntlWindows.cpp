@@ -881,8 +881,8 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
     UErrorCode status = U_ZERO_ERROR;
     // if timezone is specified, use that instead, else use default
     if (!timeZone.empty()) {
-      const UChar *timeZoneRes = reinterpret_cast<const UChar *>(
-          UTF16toUTF8(runtime, timeZone).getValue().c_str());
+      const UChar *timeZoneRes =
+          reinterpret_cast<const UChar *>(timeZone.c_str());
       int32_t timeZoneLength = timeZone.length();
       return udat_open(
           timeStyleRes,
@@ -893,10 +893,9 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
           NULL,
           -1,
           &status);
-    } else {
-      return udat_open(
-          timeStyleRes, dateStyleRes, locale8, 0, -1, NULL, -1, &status);
     }
+    return udat_open(
+        timeStyleRes, dateStyleRes, locale8, 0, -1, NULL, -1, &status);
   }
 
   // Else: lets create the skelton
@@ -961,20 +960,6 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
       customDate += u"dd";
   }
 
-  if (!minute.empty()) {
-    if (minute == eNumeric)
-      customDate += u"m";
-    else if (minute == eTwoDigit)
-      customDate += u"mm";
-  }
-
-  if (!second.empty()) {
-    if (second == eNumeric)
-      customDate += u"s";
-    else if (second == eTwoDigit)
-      customDate += u"ss";
-  }
-
   if (!hour.empty()) {
     if (hourCycle == u"h12") {
       if (hour == eNumeric)
@@ -999,24 +984,43 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
     }
   }
 
-  UErrorCode status = U_ZERO_ERROR;
-  const UChar *skeleton = reinterpret_cast<const UChar *>(customDate.c_str());
-  UChar bestpattern[40];
-  UDateTimePatternGenerator *dtpGenerator = udatpg_open(locale8, &status);
-
-  if (U_FAILURE(status)) {
-    // std::cout << "Failed to intialize generator";
+  if (!minute.empty()) {
+    if (minute == eNumeric)
+      customDate += u"m";
+    else if (minute == eTwoDigit)
+      customDate += u"mm";
   }
 
-  int32_t patternLength =
-      udatpg_getBestPattern(dtpGenerator, skeleton, -1, NULL, 0, &status);
+  if (!second.empty()) {
+    if (second == eNumeric)
+      customDate += u"s";
+    else if (second == eTwoDigit)
+      customDate += u"ss";
+  }
+
+  UErrorCode status = U_ZERO_ERROR;
+  const UChar *skeleton = reinterpret_cast<const UChar *>(customDate.c_str());
+  UChar *bestpattern;
+  int32_t patternLength;
+
+  UDateTimePatternGenerator *dtpGenerator = udatpg_open(locale8, &status);
+  patternLength = udatpg_getBestPatternWithOptions(
+      dtpGenerator,
+      skeleton,
+      -1,
+      UDATPG_MATCH_ALL_FIELDS_LENGTH,
+      NULL,
+      0,
+      &status);
 
   if (status == U_BUFFER_OVERFLOW_ERROR) {
     status = U_ZERO_ERROR;
-    udatpg_getBestPattern(
+    bestpattern = (UChar *)malloc(sizeof(UChar) * (patternLength + 1));
+    udatpg_getBestPatternWithOptions(
         dtpGenerator,
         skeleton,
         customDate.length(),
+        UDATPG_MATCH_ALL_FIELDS_LENGTH,
         bestpattern,
         patternLength,
         &status);
@@ -1024,8 +1028,8 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
 
   // if timezone is specified, use that instead, else use default
   if (!timeZone.empty()) {
-    const UChar *timeZoneRes = reinterpret_cast<const UChar *>(
-        UTF16toUTF8(runtime, timeZone).getValue().c_str());
+    const UChar *timeZoneRes =
+        reinterpret_cast<const UChar *>(timeZone.c_str());
     int32_t timeZoneLength = timeZone.length();
     return udat_open(
         UDAT_PATTERN,
@@ -1036,16 +1040,17 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
         bestpattern,
         patternLength,
         &status);
+  } else {
+    return udat_open(
+        UDAT_PATTERN,
+        UDAT_PATTERN,
+        locale8,
+        0,
+        -1,
+        bestpattern,
+        patternLength,
+        &status);
   }
-  return udat_open(
-      UDAT_PATTERN,
-      UDAT_PATTERN,
-      locale8,
-      0,
-      -1,
-      bestpattern,
-      patternLength,
-      &status);
 }
 
 struct NumberFormat::Impl {
