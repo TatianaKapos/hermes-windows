@@ -753,7 +753,6 @@ vm::ExecutionStatus DateTimeFormat::initialize(
 Options DateTimeFormat::resolvedOptions() noexcept {
   Options options;
   options.emplace(u"locale", Option(impl_->locale));
-  options.emplace(u"locale8", impl_->locale8);
   options.emplace(u"numeric", Option(false));
   options.emplace(u"timeZone", Option(impl_->timeZone));
   options.emplace(u"calendar", Option(impl_->calendar));
