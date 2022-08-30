@@ -491,11 +491,17 @@ vm::ExecutionStatus DateTimeFormat::initialize(
     const std::vector<std::u16string> &locales,
     const Options &inputOptions) noexcept {
   auto requestedLocalesRes = CanonicalizeLocaleList(runtime, locales);
+  if (requestedLocalesRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return requestedLocalesRes.getStatus();
+  }
   impl_->locale = locales.front();
 
   auto conversion = UTF16toUTF8(runtime, impl_->locale);
+  if (conversion.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return conversion.getStatus();
+  }
   const char *locale8 = conversion.getValue().c_str();
-  impl_->locale8 = locale8;
+  impl_->locale8 = locale8; // store the UTF8 version of locale since it is used in almost all other functions
 
   // 2. Let options be ? ToDateTimeOptions(options, "any", "date").
   Options options = toDateTimeOptions(runtime, inputOptions, u"any", u"date");
@@ -593,8 +599,12 @@ vm::ExecutionStatus DateTimeFormat::initialize(
       u"full", u"long", u"medium", u"short"};
   auto dateStyleRes =
       getOptionString(runtime, options, u"dateStyle", dateStyles, {});
+  if (dateStyleRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return dateStyleRes.getStatus();
+  }
   // 33. Set dateTimeFormat.[[DateStyle]] to dateStyle.
   impl_->dateStyle = dateStyleRes.getValue();
+
 
   // 34. Let timeStyle be ? GetOption(options, "timeStyle", "string", « "full",
   // "long", "medium", "short" », undefined).
@@ -602,6 +612,9 @@ vm::ExecutionStatus DateTimeFormat::initialize(
       u"full", u"long", u"medium", u"short"};
   auto timeStyleRes =
       getOptionString(runtime, options, u"timeStyle", timeStyles, {});
+  if (timeStyleRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return timeStyleRes.getStatus();
+  }
   // 35. Set dateTimeFormat.[[TimeStyle]] to timeStyle.
   impl_->timeStyle = timeStyleRes.getValue();
 
@@ -610,48 +623,75 @@ vm::ExecutionStatus DateTimeFormat::initialize(
       u"narrow", u"short", u"long"};
   auto weekdayRes =
       getOptionString(runtime, options, u"weekday", weekdayValues, {});
+  if (weekdayRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return weekdayRes.getStatus();
+  }
   impl_->weekday = weekdayRes.getValue();
 
   static const std::vector<std::u16string> eraValues = {
       u"narrow", u"short", u"long"};
   auto eraRes = getOptionString(runtime, options, u"era", eraValues, {});
+  if (eraRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return eraRes.getStatus();
+  }
   impl_->era = *eraRes;
 
   static const std::vector<std::u16string> yearValues = {
       u"2-digit", u"numeric"};
   auto yearRes = getOptionString(runtime, options, u"year", yearValues, {});
+  if (yearRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return yearRes.getStatus();
+  }
   impl_->year = *yearRes;
 
   static const std::vector<std::u16string> monthValues = {
       u"2-digit", u"numeric", u"narrow", u"short", u"long"};
   auto monthRes = getOptionString(runtime, options, u"month", monthValues, {});
+  if (monthRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return monthRes.getStatus();
+  }
   impl_->month = *monthRes;
 
   static const std::vector<std::u16string> dayValues = {u"2-digit", u"numeric"};
   auto dayRes = getOptionString(runtime, options, u"day", dayValues, {});
+  if (dayRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return dayRes.getStatus();
+  }
   impl_->day = *dayRes;
 
   static const std::vector<std::u16string> dayPeriodValues = {
       u"narrow", u"short", u"long"};
   auto dayPeriodRes =
       getOptionString(runtime, options, u"dayPeriod", dayPeriodValues, {});
+  if (dayPeriodRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return dayPeriodRes.getStatus();
+  }
   impl_->dayPeriod = *dayPeriodRes;
 
   static const std::vector<std::u16string> hourValues = {
       u"2-digit", u"numeric"};
   auto hourRes = getOptionString(runtime, options, u"hour", hourValues, {});
+  if (hourRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return hourRes.getStatus();
+  }
   impl_->hour = *hourRes;
 
   static const std::vector<std::u16string> minuteValues = {
       u"2-digit", u"numeric"};
   auto minuteRes =
       getOptionString(runtime, options, u"minute", minuteValues, {});
+  if (minuteRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return minuteRes.getStatus();
+  }
   impl_->minute = *minuteRes;
 
   static const std::vector<std::u16string> secondValues = {
       u"2-digit", u"numeric"};
   auto secondRes =
       getOptionString(runtime, options, u"second", secondValues, {});
+  if (secondRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return secondRes.getStatus();
+  }
   impl_->second = *secondRes;
 
   static const std::vector<std::u16string> timeZoneNameValues = {
@@ -663,6 +703,9 @@ vm::ExecutionStatus DateTimeFormat::initialize(
       u"longGeneric"};
   auto timeZoneNameRes = getOptionString(
       runtime, options, u"timeZoneName", timeZoneNameValues, {});
+  if (timeZoneNameRes.getStatus() == vm::ExecutionStatus::EXCEPTION){
+    return timeZoneNameRes.getStatus();
+  }
   impl_->timeZoneName = *timeZoneNameRes;
 
   // 36. If dateStyle is not undefined or timeStyle is not undefined, then
@@ -744,8 +787,6 @@ vm::ExecutionStatus DateTimeFormat::initialize(
   // 42. Set dateTimeFormat.[[RangePatterns]] to rangePatterns.
   // 43. Return dateTimeFormat
 
-  // auto UDateFormatter = impl_->getUDateFormatter(runtime);
-  // impl_->dtf =  reinterpret_cast<UDateFormat *>(&UDateFormatter.getValue());
   impl_->dtf = impl_->getUDateFormatter(runtime);
   return vm::ExecutionStatus::RETURNED;
 }
@@ -784,12 +825,10 @@ std::u16string DateTimeFormat::format(double jsTimeValue) noexcept {
     status = U_ZERO_ERROR;
     myString = (UChar *)malloc(sizeof(UChar) * (myStrlen + 1));
     udat_format(impl_->dtf, *date, myString, myStrlen + 1, NULL, &status);
-
-    char *dts = (char *)malloc(sizeof(UChar) * (myStrlen + 1));
     return myString;
   }
 
-  return u"failed";
+  return u"";
 }
 
 std::vector<std::unordered_map<std::u16string, std::u16string>>
@@ -804,18 +843,17 @@ DateTimeFormat::formatToParts(double jsTimeValue) noexcept {
 
 vm::CallResult<std::u16string> DateTimeFormat::Impl::getDefaultHourCycle(
     vm::Runtime &runtime) {
-  // auto conversion = UTF16toUTF8(runtime, locale);
-  // const char * locale8 = conversion.getValue().c_str();
-
   UErrorCode status = U_ZERO_ERROR;
   UChar *myString;
-  UDateFormat *testdtf =
+  // open the default UDateFormat and Pattern of locale
+  UDateFormat *defaultDTF =
       udat_open(UDAT_DEFAULT, UDAT_DEFAULT, locale8, 0, -1, NULL, -1, &status);
-  int32_t size = udat_toPattern(testdtf, true, NULL, 0, &status);
+  int32_t size = udat_toPattern(defaultDTF, true, NULL, 0, &status);
   if (status == U_BUFFER_OVERFLOW_ERROR) {
     status = U_ZERO_ERROR;
     myString = (UChar *)malloc(sizeof(UChar) * (size + 1));
-    udat_toPattern(testdtf, true, myString, 40, &status);
+    udat_toPattern(defaultDTF, true, myString, 40, &status);
+    // find the default hour cycle and return it
     for (int32_t i = 0; i < size; i++) {
       char16_t ch = myString[i];
       switch (ch) {
@@ -834,13 +872,13 @@ vm::CallResult<std::u16string> DateTimeFormat::Impl::getDefaultHourCycle(
       }
     }
   }
-  return u"";
+
+  // There should always be a default hour cycle, return an exception if not
+  return vm::ExecutionStatus::EXCEPTION;
 }
 
+// gets the UDateFormat with options set in initalize 
 UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
-  // auto conversion = UTF16toUTF8(runtime, locale);
-  // const char * locale8 = conversion.getValue().c_str();
-
   static std::u16string eLong = u"long", eShort = u"short", eNarrow = u"narrow",
                         eMedium = u"medium", eFull = u"full",
                         eNumeric = u"numeric", eTwoDigit = u"2-digit",
@@ -849,7 +887,7 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
                         eShortGeneric = u"shortGeneric",
                         eLongGeneric = u"longGeneric";
 
-  // timeStyle and dateStyle cannot be used in conjection with the other
+  // timeStyle and dateStyle cannot be used in conjunction with the other
   // options.
   if (!timeStyle.empty() || !dateStyle.empty()) {
     UDateFormatStyle dateStyleRes = UDAT_DEFAULT;
@@ -897,7 +935,7 @@ UDateFormat *DateTimeFormat::Impl::getUDateFormatter(vm::Runtime &runtime) {
         timeStyleRes, dateStyleRes, locale8, 0, -1, NULL, -1, &status);
   }
 
-  // Else: lets create the skelton
+  // Else: lets create the skeleton
   std::u16string customDate = u"";
   if (!weekday.empty()) {
     if (weekday == eNarrow)
